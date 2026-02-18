@@ -1,0 +1,14 @@
+# hybrid-rl requirements
+# Core
+torch>=2.0
+numpy>=1.24
+gymnasium>=0.29
+mujoco>=3.0
+h5py>=3.8
+
+# Training & evaluation
+tqdm>=4.60
+pandas>=2.0
+matplotlib>=3.7
+tensorboard>=2.12
+scipy>=1.10
