@@ -52,6 +52,56 @@ class DoubleQNetwork(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
+#  Ensemble Q-network  (for Phase II online fine-tuning)
+# --------------------------------------------------------------------------- #
+
+class EnsembleQNetwork(nn.Module):
+    """Ensemble of N independent Q-networks for uncertainty estimation.
+
+    Generalises ``DoubleQNetwork`` to *n_members* heads.  Provides
+    ``disagreement`` (std across members) used as an exploration bonus
+    during online fine-tuning.
+    """
+
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dims: list[int] = [256, 256],
+        n_members: int = 3,
+    ):
+        super().__init__()
+        self.n_members = n_members
+        self.nets = nn.ModuleList(
+            [mlp([obs_dim + act_dim] + hidden_dims + [1]) for _ in range(n_members)]
+        )
+
+    def forward(self, obs: torch.Tensor, act: torch.Tensor) -> list[torch.Tensor]:
+        """Return a list of *n_members* Q-value tensors, each shape ``(batch,)``."""
+        sa = torch.cat([obs, act], dim=-1)
+        return [net(sa).squeeze(-1) for net in self.nets]
+
+    def q_min(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
+        """Pessimistic estimate: minimum Q across all ensemble members."""
+        qs = self.forward(obs, act)
+        return torch.stack(qs, dim=0).min(dim=0).values
+
+    def disagreement(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
+        """Ensemble disagreement: std of Q-values across members ``(batch,)``."""
+        qs = self.forward(obs, act)
+        return torch.stack(qs, dim=0).std(dim=0)
+
+    def load_double_q(self, double_q: DoubleQNetwork):
+        """Initialise the first two members from a pretrained ``DoubleQNetwork``.
+
+        Remaining members keep their random initialisation, providing
+        diversity for meaningful disagreement estimates.
+        """
+        self.nets[0].load_state_dict(double_q.q1.state_dict())
+        self.nets[1].load_state_dict(double_q.q2.state_dict())
+
+
+# --------------------------------------------------------------------------- #
 #  Value network  (used by IQL only)
 # --------------------------------------------------------------------------- #
 

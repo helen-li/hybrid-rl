@@ -1,5 +1,5 @@
 """
-Plotting utilities for Phase I analysis.
+Plotting utilities for Phase I and Phase II analysis.
 
 All functions save figures to disk and optionally display them.
 """
@@ -166,4 +166,85 @@ def plot_loss_variance(
     ax.set_xlabel("Training Steps")
     ax.set_ylabel("Loss Variance")
     ax.legend()
+    _save(fig, Path(save_path), show)
+
+
+# --------------------------------------------------------------------------- #
+#  Phase II: Fine-tuning curves
+# --------------------------------------------------------------------------- #
+
+def plot_finetuning_curves(
+    results: Dict[str, Dict[str, List[float]]],
+    x_key: str = "step",
+    y_key: str = "normalized_return",
+    title: str = "Online Fine-tuning",
+    xlabel: str = "Online Steps",
+    ylabel: str = "Normalized Return (D4RL)",
+    save_path: str | Path = "plots_phase2/finetuning.png",
+    show: bool = False,
+):
+    """Plot fine-tuning learning curves comparing ensemble vs vanilla.
+
+    Same format as ``plot_learning_curves`` but styled for Phase II
+    with solid lines for ensemble and dashed lines for vanilla.
+    """
+    fig, ax = plt.subplots()
+    for i, (label, data) in enumerate(results.items()):
+        xs = data[x_key]
+        ys = data[y_key]
+        color = COLORS[i % len(COLORS)]
+        linestyle = "--" if "vanilla" in label else "-"
+        ax.plot(xs, ys, label=label, color=color, linewidth=1.5, linestyle=linestyle)
+        std_key = y_key + "_std"
+        if std_key in data:
+            stds = np.array(data[std_key])
+            ys_arr = np.array(ys)
+            ax.fill_between(xs, ys_arr - stds, ys_arr + stds, color=color, alpha=0.15)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend(loc="best", fontsize=9)
+    _save(fig, Path(save_path), show)
+
+
+# --------------------------------------------------------------------------- #
+#  Phase II: Sample efficiency bar chart
+# --------------------------------------------------------------------------- #
+
+def plot_sample_efficiency(
+    data: Dict[str, Dict[str, float]],
+    title: str = "Sample Efficiency",
+    save_path: str | Path = "plots_phase2/sample_efficiency.png",
+    show: bool = False,
+):
+    """Bar chart showing online steps needed to reach a performance threshold.
+
+    Parameters
+    ----------
+    data : dict
+        Keys are labels (e.g. "CQL clean (ensemble)").
+        Values are dicts with "mean" and "std" keys.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    labels = list(data.keys())
+    means = [data[l]["mean"] for l in labels]
+    stds = [data[l]["std"] for l in labels]
+
+    colors = [COLORS[0] if "ensemble" in l else COLORS[1] for l in labels]
+    x = np.arange(len(labels))
+
+    ax.bar(x, means, yerr=stds, capsize=3, color=colors, alpha=0.8)
+    ax.set_title(title)
+    ax.set_ylabel("Online Steps to Threshold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+
+    # Legend for ensemble vs vanilla colors
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=COLORS[0], label="Ensemble bonus"),
+        Patch(facecolor=COLORS[1], label="Vanilla (no bonus)"),
+    ]
+    ax.legend(handles=legend_elements)
+    fig.tight_layout()
     _save(fig, Path(save_path), show)
