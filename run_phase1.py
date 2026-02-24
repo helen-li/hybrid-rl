@@ -173,8 +173,10 @@ def generate_plots(
         # ---- Corruption comparison bar chart ------------------------- #
         corruption_labels = [f"clean" if k == 0 else f"k={int(k)}" for k in corruptions]
         bar_scores: Dict[str, List[float]] = {}
+        bar_stds: Dict[str, List[float]] = {}
         for algo in algos:
             scores = []
+            stds = []
             for k in corruptions:
                 seed_returns = []
                 for seed in seeds:
@@ -182,13 +184,16 @@ def generate_plots(
                     if m and m["normalized_return"]:
                         seed_returns.append(m["normalized_return"][-1])
                 scores.append(float(np.mean(seed_returns)) if seed_returns else 0.0)
+                stds.append(float(np.std(seed_returns)) if len(seed_returns) > 1 else 0.0)
             bar_scores[algo.upper()] = scores
+            bar_stds[algo.upper()] = stds
 
         if bar_scores:
             plot_corruption_comparison(
                 list(bar_scores.keys()),
                 corruption_labels,
                 bar_scores,
+                stds=bar_stds,
                 title=f"Final Performance vs. Corruption - {env}",
                 save_path=f"{plot_dir}/corruption_bar_{env}.png",
             )
@@ -196,35 +201,94 @@ def generate_plots(
 
         # ---- Q-value diagnostics (one per algo, clean dataset) ------- #
         for algo in algos:
-            m = load_m(save_dir, algo, env, 0.0, seeds[0])
-            if m is None or "q1_mean_avg" not in m:
+            all_q_means = []
+            train_steps = None
+            for seed in seeds:
+                m = load_m(save_dir, algo, env, 0.0, seed)
+                if m is None or "q1_mean_avg" not in m:
+                    continue
+                all_q_means.append(m["q1_mean_avg"])
+                train_steps = m["train_step"]
+            if not all_q_means or train_steps is None:
                 continue
+            q_arr = np.array(all_q_means)
             plot_q_value_diagnostics(
-                steps=m["train_step"],
-                q_means=m["q1_mean_avg"],
-                q_stds=m["q1_mean_std"],
+                steps=train_steps,
+                q_means=q_arr.mean(axis=0).tolist(),
+                q_stds=q_arr.std(axis=0).tolist(),
                 title=f"Q-value - {algo.upper()} {env} (clean)",
                 save_path=f"{plot_dir}/q_diag_{algo}_{env}.png",
             )
+            print(f"[plot] Saved Q-diagnostics for {algo.upper()} {env}")
 
         # ---- Loss variance ------------------------------------------ #
         var_data: Dict[str, List[float]] = {}
         for algo, k in product(algos, corruptions):
-            m = load_m(save_dir, algo, env, k, seeds[0])
-            if m is None or "critic_loss_rolling_var" not in m:
+            seed_vars = []
+            for seed in seeds:
+                m = load_m(save_dir, algo, env, k, seed)
+                if m is None or "critic_loss_rolling_var" not in m:
+                    continue
+                seed_vars.append(m["critic_loss_rolling_var"])
+            if not seed_vars:
                 continue
+            # Average across seeds (truncate to shortest)
+            min_len = min(len(v) for v in seed_vars)
+            avg_var = np.mean([v[:min_len] for v in seed_vars], axis=0)
+            # Downsample for readability (keep ~500 points)
+            stride = max(1, min_len // 500)
             label = f"{algo.upper()} k={int(k)}" if k > 0 else f"{algo.upper()} clean"
-            var_data[label] = m["critic_loss_rolling_var"]
+            var_data[label] = avg_var[::stride].tolist()
 
         if var_data:
+            # Build proper training-step x-axis from total_steps and rolling window offset
             max_len = max(len(v) for v in var_data.values())
+            # Rolling variance starts after window (1000 steps) — map to training steps
+            total_steps_cfg = 500_000  # fallback
+            any_m = None
+            for seed in seeds:
+                any_m = load_m(save_dir, algos[0], env, corruptions[0], seed)
+                if any_m is not None:
+                    break
+            if any_m and "critic_loss_rolling_var" in any_m:
+                raw_len = len(any_m["critic_loss_rolling_var"])
+                step_axis = np.linspace(1000, 1000 + raw_len - 1, max_len).tolist()
+            else:
+                step_axis = list(range(max_len))
             plot_loss_variance(
-                steps=list(range(max_len)),
+                steps=step_axis,
                 variances=var_data,
                 title=f"Critic Loss Variance - {env}",
                 save_path=f"{plot_dir}/loss_variance_{env}.png",
             )
             print(f"[plot] Saved loss variance plot for {env}")
+
+
+# --------------------------------------------------------------------------- #
+#  CLI helpers
+# --------------------------------------------------------------------------- #
+
+def _detect_seeds(
+    save_dir: str,
+    algos: List[str],
+    envs: List[str],
+    corruptions: List[float],
+    reward_noise_std: float = 0.0,
+) -> List[int]:
+    """Scan *save_dir* and return the sorted set of seed values that have results."""
+    found: set[int] = set()
+    for algo, env, k in product(algos, envs, corruptions):
+        tag = f"k{int(k)}_noise{float(reward_noise_std)}"
+        pattern = f"{algo}_{env}_{tag}_s*"
+        for p in Path(save_dir).glob(pattern):
+            metrics = p / "metrics.json"
+            if metrics.exists():
+                # Extract seed from directory name: ...s<N>
+                try:
+                    found.add(int(p.name.rsplit("_s", 1)[1]))
+                except (IndexError, ValueError):
+                    pass
+    return sorted(found)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +333,14 @@ def main():
         run_experiment_grid(
             envs, algos, corruptions, seeds, steps, args.device, args.save_dir, args.reward_noise_std
         )
+
+    # In plot-only mode with no explicit --seed, auto-detect available seeds
+    # from the results directory so users don't have to specify them.
+    if args.plot_only and args.seed is None:
+        detected = _detect_seeds(args.save_dir, algos, envs, corruptions, args.reward_noise_std)
+        if detected:
+            seeds = detected
+            print(f"[plot] Auto-detected seeds: {seeds}")
 
     generate_plots(
         envs, algos, corruptions, seeds, args.save_dir, args.plot_dir, args.reward_noise_std
