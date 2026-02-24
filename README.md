@@ -67,6 +67,10 @@ python run_phase1.py --device auto
 python run_phase1.py --plot_only
 ```
 
+> **Note:** `--plot_only` auto-detects whichever seeds exist in
+> `results/`, so there is no need to specify `--seed` when re-generating
+> plots.
+
 ## Key CLI Flags
 
 | Flag | Default | Description |
@@ -88,7 +92,12 @@ python run_phase1.py --plot_only
 
 ## Metrics & Plots
 
-- **Normalized return** (D4RL convention): 100 × (score − random) / (expert − random)
-- **Q-value diagnostics**: mean Q ± std over training
-- **Rolling critic loss variance**: detects value collapse / instability
-- **Corruption comparison bar chart**: final performance vs. corruption level
+Plot generation averages over all available seeds and is invoked
+automatically after training, or standalone via `--plot_only`.
+
+| Plot | File pattern | Description |
+|------|-------------|-------------|
+| Learning curves | `learning_curves_*.png` | Side-by-side CQL / IQL panels, one curve per corruption level (mean ± std across seeds) |
+| Corruption bar chart | `corruption_bar_*.png` | Final normalized return per algo × corruption, with ±1 std error bars |
+| Q-value diagnostics | `q_diag_*.png` | Mean Q ± std over training (clean dataset, averaged across seeds) |
+| Loss variance | `loss_variance_*.png` | Rolling critic-loss variance (log-scale, downsampled, averaged across seeds) |

@@ -1,0 +1,15 @@
+{
+  "env_name": "hopper-medium-v2",
+  "algo": "iql",
+  "remove_top_k": 30.0,
+  "reward_noise_std": 0.0,
+  "corruption_seed": 0,
+  "total_steps": 500000,
+  "batch_size": 256,
+  "eval_interval": 10000,
+  "eval_episodes": 10,
+  "log_interval": 1000,
+  "seed": 1,
+  "device": "auto",
+  "save_dir": "results"
+}
