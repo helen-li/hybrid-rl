@@ -23,7 +23,7 @@ from src.data.corruption import corrupt_dataset
 from src.data.dataset import ReplayBuffer
 from src.algos.online_cql import OnlineCQL, OnlineCQLConfig
 from src.algos.online_iql import OnlineIQL, OnlineIQLConfig
-from src.eval.metrics import evaluate_policy, compute_normalized_return
+from src.eval.metrics import evaluate_policy, compute_normalized_return, compute_q_stats, rolling_loss_variance
 
 
 @dataclass
@@ -45,6 +45,7 @@ class FinetuneConfig:
     # Online training
     online_steps: int = 250_000
     online_ratio: float = 0.5            # fraction of batch from online buffer
+    min_online_buffer: int = 1000        # warm-up: min online transitions before hybrid replay
     batch_size: int = 256
     eval_interval: int = 5_000
     eval_episodes: int = 10
@@ -167,20 +168,20 @@ def finetune(cfg: FinetuneConfig) -> Dict[str, list]:
 
     for step in trange(1, cfg.online_steps + 1, desc=run_name):
         # ---- Collect one transition ---------------------------------- #
-        action = agent.select_action(np.asarray(obs, dtype=np.float32), deterministic=False)
+        obs_arr = np.asarray(obs, dtype=np.float32)
+        action = agent.select_action(obs_arr, deterministic=False)
         next_obs, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
 
         # Compute exploration bonus
         if cfg.bonus_type == "ensemble":
-            bonus = agent.compute_exploration_bonus(
-                np.asarray(obs, dtype=np.float32), action,
-            )
+            bonus = agent.compute_exploration_bonus(obs_arr, action)
         else:
             bonus = 0.0
 
         # Store transition with bonus-augmented reward in online buffer
-        replay_buffer.add(obs, action, reward + bonus, next_obs, float(terminated))
+        next_obs_arr = np.asarray(next_obs, dtype=np.float32)
+        replay_buffer.add(obs_arr, action, reward + bonus, next_obs_arr, float(terminated))
 
         ep_return += reward
         ep_len += 1
@@ -194,7 +195,7 @@ def finetune(cfg: FinetuneConfig) -> Dict[str, list]:
 
         # ---- Train with hybrid replay -------------------------------- #
         # Only start training once we have enough online transitions
-        if replay_buffer.size >= cfg.batch_size:
+        if replay_buffer.size >= cfg.min_online_buffer:
             # Split batch: online_ratio from replay buffer, rest from offline
             n_online = max(1, int(cfg.batch_size * cfg.online_ratio))
             n_offline = cfg.batch_size - n_online
@@ -219,11 +220,14 @@ def finetune(cfg: FinetuneConfig) -> Dict[str, list]:
         # ---- Periodic logging ---------------------------------------- #
         if step % cfg.log_interval == 0 and train_metrics_window:
             recent = train_metrics_window[-cfg.log_interval:]
-            avg_disagree = np.mean([m.get("ensemble_disagreement", 0) for m in recent])
-            avg_critic = np.mean([m["critic_loss"] for m in recent])
+            q_stats = compute_q_stats(recent)
+            avg_disagree = q_stats.get("ensemble_disagreement_avg", 0.0)
+            avg_critic = q_stats.get("critic_loss_avg", 0.0)
             log.setdefault("train_step", []).append(step)
             log.setdefault("ensemble_disagreement", []).append(float(avg_disagree))
             log.setdefault("critic_loss_avg", []).append(float(avg_critic))
+            log.setdefault("q_mean_avg", []).append(float(q_stats.get("q_mean_avg", 0.0)))
+            log.setdefault("q_std_avg", []).append(float(q_stats.get("q_std_avg", 0.0)))
 
         # ---- Periodic evaluation ------------------------------------- #
         if step % cfg.eval_interval == 0:
@@ -249,6 +253,11 @@ def finetune(cfg: FinetuneConfig) -> Dict[str, list]:
     # ------------------------------------------------------------------ #
     #  Save results
     # ------------------------------------------------------------------ #
+    # Rolling loss variance for stability analysis
+    critic_loss_history = [m["critic_loss"] for m in train_metrics_window]
+    loss_var = rolling_loss_variance(critic_loss_history, window=1000)
+    log["critic_loss_rolling_var"] = loss_var
+
     def _convert(obj):
         if isinstance(obj, (np.float32, np.float64)):
             return float(obj)

@@ -31,12 +31,14 @@ class OnlineCQLConfig:
     # Ensemble
     n_ensemble: int = 3
     bonus_coeff: float = 1.0         # lambda for exploration bonus
+    max_bonus: float = 5.0           # hard cap on exploration bonus magnitude
     # Optimisation
     lr_actor: float = 3e-4
     lr_critic: float = 3e-4
     batch_size: int = 256
     discount: float = 0.99
     tau: float = 0.005
+    grad_clip: float = 1.0           # max gradient norm (0 = no clipping)
     # SAC entropy
     init_alpha: float = 1.0
     learnable_alpha: bool = True
@@ -168,6 +170,8 @@ class OnlineCQL:
 
         self.critic_optim.zero_grad()
         critic_loss.backward()
+        if self.cfg.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.cfg.grad_clip)
         self.critic_optim.step()
 
         # Lagrange update for CQL alpha
@@ -187,6 +191,8 @@ class OnlineCQL:
 
         self.actor_optim.zero_grad()
         actor_loss.backward()
+        if self.cfg.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg.grad_clip)
         self.actor_optim.step()
 
         # ----- Alpha loss ------------------------------------------------- #
@@ -265,11 +271,12 @@ class OnlineCQL:
 
     @torch.no_grad()
     def compute_exploration_bonus(self, obs: np.ndarray, act: np.ndarray) -> float:
-        """Return scalar exploration bonus: lambda * ensemble disagreement."""
+        """Return scalar exploration bonus: lambda * ensemble disagreement, clipped."""
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         act_t = torch.as_tensor(act, dtype=torch.float32, device=self.device).unsqueeze(0)
         disagreement = self.critic.disagreement(obs_t, act_t).item()
-        return self.cfg.bonus_coeff * disagreement
+        bonus = self.cfg.bonus_coeff * disagreement
+        return min(bonus, self.cfg.max_bonus)
 
     # ------------------------------------------------------------------ #
     #  Inference

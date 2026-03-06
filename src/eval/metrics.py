@@ -67,15 +67,21 @@ def compute_normalized_return(
 def compute_q_stats(metrics_history: List[Dict[str, float]]) -> Dict[str, float]:
     """Aggregate Q-value diagnostics over a window of training steps.
 
+    Works for both Phase I (DoubleQNetwork with q1_mean/q2_mean) and
+    Phase II (EnsembleQNetwork with q_mean/q_std).  Auto-detects which
+    keys are present and returns the appropriate aggregates.
+
     Parameters
     ----------
     metrics_history : list of per-step metric dicts (from agent.update()).
 
     Returns
     -------
-    dict with aggregated stats:
-        q1_mean, q1_std, q2_mean, q2_std,
-        critic_loss_mean, critic_loss_std
+    dict with aggregated stats.
+    Phase I keys: q1_mean_avg, q1_mean_std, q2_mean_avg, q2_mean_std
+    Phase II keys: q_mean_avg, q_mean_std, ensemble_disagreement_avg,
+                   ensemble_disagreement_std
+    Always: critic_loss_avg, critic_loss_var
     """
     def _agg(key: str) -> Tuple[float, float]:
         vals = [m[key] for m in metrics_history if key in m]
@@ -84,18 +90,40 @@ def compute_q_stats(metrics_history: List[Dict[str, float]]) -> Dict[str, float]
         arr = np.array(vals)
         return float(arr.mean()), float(arr.std())
 
-    q1_mean, q1_std = _agg("q1_mean")
-    q2_mean, q2_std = _agg("q2_mean")
-    cl_mean, cl_std = _agg("critic_loss")
+    result: Dict[str, float] = {}
 
-    return {
-        "q1_mean_avg": q1_mean,
-        "q1_mean_std": q1_std,
-        "q2_mean_avg": q2_mean,
-        "q2_mean_std": q2_std,
+    # Phase I: DoubleQNetwork keys
+    if any("q1_mean" in m for m in metrics_history):
+        q1_mean, q1_std = _agg("q1_mean")
+        q2_mean, q2_std = _agg("q2_mean")
+        result.update({
+            "q1_mean_avg": q1_mean,
+            "q1_mean_std": q1_std,
+            "q2_mean_avg": q2_mean,
+            "q2_mean_std": q2_std,
+        })
+
+    # Phase II: EnsembleQNetwork keys
+    if any("q_mean" in m for m in metrics_history):
+        q_mean, q_std = _agg("q_mean")
+        q_std_mean, q_std_std = _agg("q_std")
+        disagree_mean, disagree_std = _agg("ensemble_disagreement")
+        result.update({
+            "q_mean_avg": q_mean,
+            "q_mean_std": q_std,
+            "q_std_avg": q_std_mean,
+            "q_std_std": q_std_std,
+            "ensemble_disagreement_avg": disagree_mean,
+            "ensemble_disagreement_std": disagree_std,
+        })
+
+    cl_mean, cl_std = _agg("critic_loss")
+    result.update({
         "critic_loss_avg": cl_mean,
         "critic_loss_var": cl_std ** 2,
-    }
+    })
+
+    return result
 
 
 def rolling_loss_variance(

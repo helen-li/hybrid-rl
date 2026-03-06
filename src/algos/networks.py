@@ -69,9 +69,11 @@ class EnsembleQNetwork(nn.Module):
         act_dim: int,
         hidden_dims: list[int] = [256, 256],
         n_members: int = 3,
+        n_pretrained: int = 2,
     ):
         super().__init__()
         self.n_members = n_members
+        self.n_pretrained = n_pretrained  # how many members were loaded from checkpoint
         self.nets = nn.ModuleList(
             [mlp([obs_dim + act_dim] + hidden_dims + [1]) for _ in range(n_members)]
         )
@@ -82,12 +84,18 @@ class EnsembleQNetwork(nn.Module):
         return [net(sa).squeeze(-1) for net in self.nets]
 
     def q_min(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
-        """Pessimistic estimate: minimum Q across all ensemble members."""
-        qs = self.forward(obs, act)
+        """Pessimistic estimate: minimum Q across *pretrained* members only.
+
+        Using only the pretrained members for the pessimistic target prevents
+        randomly-initialised members from corrupting Bellman targets with
+        garbage Q-values during early training.
+        """
+        sa = torch.cat([obs, act], dim=-1)
+        qs = [self.nets[i](sa).squeeze(-1) for i in range(self.n_pretrained)]
         return torch.stack(qs, dim=0).min(dim=0).values
 
     def disagreement(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
-        """Ensemble disagreement: std of Q-values across members ``(batch,)``."""
+        """Ensemble disagreement: std of Q-values across *all* members ``(batch,)``."""
         qs = self.forward(obs, act)
         return torch.stack(qs, dim=0).std(dim=0)
 

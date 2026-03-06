@@ -31,6 +31,7 @@ class OnlineIQLConfig:
     # Ensemble
     n_ensemble: int = 3
     bonus_coeff: float = 1.0         # lambda for exploration bonus
+    max_bonus: float = 5.0           # hard cap on exploration bonus magnitude
     # Optimisation
     lr_actor: float = 3e-4
     lr_critic: float = 3e-4
@@ -38,6 +39,7 @@ class OnlineIQLConfig:
     batch_size: int = 256
     discount: float = 0.99
     tau: float = 0.005
+    grad_clip: float = 1.0           # max gradient norm (0 = no clipping)
     # IQL-specific
     expectile: float = 0.7
     temperature: float = 3.0
@@ -143,6 +145,8 @@ class OnlineIQL:
 
         self.value_optim.zero_grad()
         value_loss.backward()
+        if self.cfg.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.value.parameters(), self.cfg.grad_clip)
         self.value_optim.step()
 
         # ----- Critic loss (Bellman with V target, all ensemble members) -- #
@@ -155,6 +159,8 @@ class OnlineIQL:
 
         self.critic_optim.zero_grad()
         critic_loss.backward()
+        if self.cfg.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.cfg.grad_clip)
         self.critic_optim.step()
 
         # ----- Actor loss (advantage-weighted regression) ----------------- #
@@ -167,6 +173,8 @@ class OnlineIQL:
 
         self.actor_optim.zero_grad()
         actor_loss.backward()
+        if self.cfg.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg.grad_clip)
         self.actor_optim.step()
 
         # ----- Target update ---------------------------------------------- #
@@ -195,11 +203,12 @@ class OnlineIQL:
 
     @torch.no_grad()
     def compute_exploration_bonus(self, obs: np.ndarray, act: np.ndarray) -> float:
-        """Return scalar exploration bonus: lambda * ensemble disagreement."""
+        """Return scalar exploration bonus: lambda * ensemble disagreement, clipped."""
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         act_t = torch.as_tensor(act, dtype=torch.float32, device=self.device).unsqueeze(0)
         disagreement = self.critic.disagreement(obs_t, act_t).item()
-        return self.cfg.bonus_coeff * disagreement
+        bonus = self.cfg.bonus_coeff * disagreement
+        return min(bonus, self.cfg.max_bonus)
 
     # ------------------------------------------------------------------ #
     #  Inference

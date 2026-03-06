@@ -53,7 +53,7 @@ DEFAULT_ENVS = ["halfcheetah-medium-v2", "hopper-medium-v2"]
 DEFAULT_ALGOS = ["cql", "iql"]
 DEFAULT_CORRUPTION = [0.0, 30.0, 60.0]
 DEFAULT_BONUS_TYPES = ["ensemble", "none"]
-DEFAULT_SEEDS = [0, 1, 2]
+DEFAULT_SEEDS = [1, 2]
 
 QUICK_STEPS = 5_000
 FULL_STEPS = 250_000
@@ -297,7 +297,8 @@ def main():
 
     if args.quick:
         steps = QUICK_STEPS
-        seeds = [0]
+        if args.seed is None:
+            seeds = [seeds[0]]  # default to first available seed, don't override explicit --seed
     else:
         steps = args.online_steps or FULL_STEPS
 
