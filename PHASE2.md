@@ -16,23 +16,23 @@
 
 ## 2. Environment and Data
 
-| Item | Choice |
-|------|--------|
-| **Benchmark** | D4RL MuJoCo locomotion (same as Phase I) |
-| **Environments** | HalfCheetah, Hopper (`halfcheetah-medium-v2`, `hopper-medium-v2`) |
-| **Offline data** | Same corrupted D4RL datasets from Phase I, used for hybrid replay |
-| **Online data** | New transitions collected by interacting with the environment during fine-tuning |
+| Item             | Choice                                                                           |
+| ---------------- | -------------------------------------------------------------------------------- |
+| **Benchmark**    | D4RL MuJoCo locomotion (same as Phase I)                                         |
+| **Environments** | HalfCheetah, Hopper (`halfcheetah-medium-v2`, `hopper-medium-v2`)                |
+| **Offline data** | Same corrupted D4RL datasets from Phase I, used for hybrid replay                |
+| **Online data**  | New transitions collected by interacting with the environment during fine-tuning |
 
 ---
 
 ## 3. Ensemble Q-Networks
 
-| Component | Description | Implementation |
-|-----------|-------------|----------------|
-| **EnsembleQNetwork** | N independent Q-network MLPs (same architecture as Phase I: [256, 256]) | `src/algos/networks.py` |
-| **Initialization** | First 2 members loaded from Phase I `DoubleQNetwork` checkpoint (q1, q2); remaining members randomly initialized for diversity | `load_double_q()` in `EnsembleQNetwork` |
-| **Pessimistic estimate** | `q_min`: minimum Q-value across all ensemble members, used for Bellman targets and actor loss | Same role as `min(q1, q2)` in Phase I |
-| **Disagreement signal** | `disagreement`: standard deviation of Q-values across members — high std means the agent is uncertain | Used as the exploration bonus |
+| Component                | Description                                                                                                                    | Implementation                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **EnsembleQNetwork**     | N independent Q-network MLPs (same architecture as Phase I: [256, 256])                                                        | `src/algos/networks.py`                 |
+| **Initialization**       | First 2 members loaded from Phase I `DoubleQNetwork` checkpoint (q1, q2); remaining members randomly initialized for diversity | `load_double_q()` in `EnsembleQNetwork` |
+| **Pessimistic estimate** | `q_min`: minimum Q-value across all ensemble members, used for Bellman targets and actor loss                                  | Same role as `min(q1, q2)` in Phase I   |
+| **Disagreement signal**  | `disagreement`: standard deviation of Q-values across members — high std means the agent is uncertain                          | Used as the exploration bonus           |
 
 The number of ensemble members is configurable via `--n_ensemble` (default 3, supports 3–5).
 
@@ -44,10 +44,10 @@ During online data collection, an exploration bonus is added to the environment 
 
 **r' = r + λ × std(Q₁(s, a), Q₂(s, a), ..., Qₙ(s, a))**
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| **λ** (`bonus_coeff`) | Scaling coefficient for the exploration bonus | 1.0 |
-| **bonus_type** | `"ensemble"` (disagreement bonus) or `"none"` (vanilla baseline) | `"ensemble"` |
+| Parameter             | Description                                                      | Default      |
+| --------------------- | ---------------------------------------------------------------- | ------------ |
+| **λ** (`bonus_coeff`) | Scaling coefficient for the exploration bonus                    | 1.0          |
+| **bonus_type**        | `"ensemble"` (disagreement bonus) or `"none"` (vanilla baseline) | `"ensemble"` |
 
 The offline dataset retains its original rewards — only online transitions get the bonus. This incentivizes the agent to visit states where the ensemble disagrees (i.e., where the offline data provided insufficient coverage).
 
@@ -55,15 +55,15 @@ The offline dataset retains its original rewards — only online transitions get
 
 ## 5. Online Fine-Tuning Loop
 
-| Step | Description |
-|------|-------------|
-| **1. Load checkpoint** | Load Phase I offline checkpoint into `OnlineCQL` or `OnlineIQL` agent with ensemble critic |
-| **2. Collect transitions** | Agent interacts with the environment using its current policy (stochastic, not deterministic) |
-| **3. Compute bonus** | For each transition, compute ensemble disagreement and add `λ × disagreement` to the reward |
-| **4. Store in replay buffer** | Online transitions (with bonus-augmented rewards) are stored in a `ReplayBuffer` |
-| **5. Hybrid replay** | Each training batch is split: `online_ratio` (default 50%) from the online buffer, the rest from the offline dataset |
-| **6. Update agent** | Standard CQL or IQL update using the mixed batch |
-| **7. Evaluate periodically** | Evaluate policy in the environment every `eval_interval` steps |
+| Step                          | Description                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **1. Load checkpoint**        | Load Phase I offline checkpoint into `OnlineCQL` or `OnlineIQL` agent with ensemble critic                           |
+| **2. Collect transitions**    | Agent interacts with the environment using its current policy (stochastic, not deterministic)                        |
+| **3. Compute bonus**          | For each transition, compute ensemble disagreement and add `λ × disagreement` to the reward                          |
+| **4. Store in replay buffer** | Online transitions (with bonus-augmented rewards) are stored in a `ReplayBuffer`                                     |
+| **5. Hybrid replay**          | Each training batch is split: `online_ratio` (default 50%) from the online buffer, the rest from the offline dataset |
+| **6. Update agent**           | Standard CQL or IQL update using the mixed batch                                                                     |
+| **7. Evaluate periodically**  | Evaluate policy in the environment every `eval_interval` steps                                                       |
 
 **CQL penalty reduction:** The CQL conservative penalty α is reduced from 5.0 (offline) to 1.0 (online) to allow the agent to explore beyond the offline data distribution.
 
@@ -77,9 +77,9 @@ The offline dataset retains its original rewards — only online transitions get
 - **Environments:** HalfCheetah-medium-v2, Hopper-medium-v2
 - **Corruption:** clean (k=0), k=30, k=60 (loads corresponding Phase I checkpoint)
 - **Bonus type:** ensemble, none (vanilla baseline)
-- **Seeds:** 0, 1, 2
+- **Seeds:** 1, 2
 
-**Total runs:** 2 algos × 2 envs × 3 corruption levels × 2 bonus types × 3 seeds = **72 fine-tuning runs**.
+**Total runs:** 2 algos × 2 envs × 3 corruption levels × 2 bonus types × 2 seeds = **48 fine-tuning runs**.
 
 Each run: 250,000 online steps (5,000 for quick smoke tests), with periodic evaluation every 5,000 steps.
 
@@ -89,13 +89,13 @@ Each run: 250,000 online steps (5,000 for quick smoke tests), with periodic eval
 
 ## 7. Metrics
 
-| Metric | Purpose |
-|--------|---------|
-| **Normalized return** | D4RL convention: 100 × (score − random) / (expert − random). Primary performance measure. |
-| **Fine-tuning curves** | Normalized return vs. online steps, comparing ensemble bonus vs. vanilla for each corruption level. Solid lines = ensemble, dashed = vanilla. |
-| **Sample efficiency** | Number of online steps required to reach a fixed performance threshold (80% of clean offline performance). Lower is better. |
-| **Ensemble disagreement** | Mean std across ensemble members over training. Should start high (diverse init) and decrease as members converge. |
-| **Offline checkpoint performance** | Step-0 evaluation before any online training — baseline to measure recovery from. |
+| Metric                             | Purpose                                                                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Normalized return**              | D4RL convention: 100 × (score − random) / (expert − random). Primary performance measure.                                                     |
+| **Fine-tuning curves**             | Normalized return vs. online steps, comparing ensemble bonus vs. vanilla for each corruption level. Solid lines = ensemble, dashed = vanilla. |
+| **Sample efficiency**              | Number of online steps required to reach a fixed performance threshold (80% of clean offline performance). Lower is better.                   |
+| **Ensemble disagreement**          | Mean std across ensemble members over training. Should start high (diverse init) and decrease as members converge.                            |
+| **Offline checkpoint performance** | Step-0 evaluation before any online training — baseline to measure recovery from.                                                             |
 
 Implemented in `src/eval/metrics.py` and `src/eval/plotting.py`; fine-tuning loop in `src/finetune.py` logs and saves these.
 
@@ -118,17 +118,17 @@ Implemented in `src/eval/metrics.py` and `src/eval/plotting.py`; fine-tuning loo
 
 - [ ] **Phase I checkpoints ready:** Ensure all required Phase I runs are complete (at minimum seed 0 for all 12 algo × env × corruption combinations in `results/`).
 - [ ] **Quick sanity check:**
-  `conda run -n hybrid-rl python run_phase2.py --quick --algo cql --env halfcheetah-medium-v2 --remove_top_k 0`
-  (5k online steps, single seed; confirms checkpoint loading, ensemble construction, online collection, hybrid replay, and evaluation.)
+      `conda run -n hybrid-rl python run_phase2.py --quick --algo cql --env halfcheetah-medium-v2 --remove_top_k 0`
+      (5k online steps, single seed; confirms checkpoint loading, ensemble construction, online collection, hybrid replay, and evaluation.)
 - [ ] **Single full run (optional):** e.g.
-  `conda run -n hybrid-rl python run_phase2.py --algo cql --env halfcheetah-medium-v2 --remove_top_k 30 --bonus_type ensemble --seed 0`
-  to validate one full-length run and metrics.
+      `conda run -n hybrid-rl python run_phase2.py --algo cql --env halfcheetah-medium-v2 --remove_top_k 30 --bonus_type ensemble --seed 0`
+      to validate one full-length run and metrics.
 - [ ] **Full Phase II grid:**
-  `conda run -n hybrid-rl python run_phase2.py --device auto`
-  (runs all 72 experiments; can be batched by algo/env if needed.)
+      `conda run -n hybrid-rl python run_phase2.py --device auto`
+      (runs all 48 experiments; can be batched by algo/env if needed.)
 - [ ] **Plots from existing results:**
-  `conda run -n hybrid-rl python run_phase2.py --plot_only`
-  (regenerate all Phase II figures from current `results_phase2/`.)
+      `conda run -n hybrid-rl python run_phase2.py --plot_only`
+      (regenerate all Phase II figures from current `results_phase2/`.)
 - [ ] **Report:** Summarize fine-tuning curves, sample efficiency, and disagreement trends; describe how ensemble bonus compares to vanilla fine-tuning across corruption levels.
 
 ---
@@ -147,17 +147,17 @@ Implemented in `src/eval/metrics.py` and `src/eval/plotting.py`; fine-tuning loo
 
 ## 11. References to Code
 
-| Component | Location |
-|-----------|----------|
-| Entry point / experiment grid | `run_phase2.py` |
-| Online fine-tuning loop | `src/finetune.py` |
-| Ensemble Q-network | `src/algos/networks.py` (`EnsembleQNetwork`) |
-| Online CQL (ensemble critic) | `src/algos/online_cql.py` |
-| Online IQL (ensemble critic) | `src/algos/online_iql.py` |
-| Offline dataset / replay buffer | `src/data/dataset.py` |
-| Data loading, corruption | `src/data/loader.py`, `src/data/corruption.py` |
-| Normalized return, evaluation | `src/eval/metrics.py` |
-| Fine-tuning curves, sample efficiency plots | `src/eval/plotting.py` |
-| Phase I checkpoints (input) | `results/` |
-| Phase II results (output) | `results_phase2/` |
-| Phase II plots (output) | `plots_phase2/` |
+| Component                                   | Location                                       |
+| ------------------------------------------- | ---------------------------------------------- |
+| Entry point / experiment grid               | `run_phase2.py`                                |
+| Online fine-tuning loop                     | `src/finetune.py`                              |
+| Ensemble Q-network                          | `src/algos/networks.py` (`EnsembleQNetwork`)   |
+| Online CQL (ensemble critic)                | `src/algos/online_cql.py`                      |
+| Online IQL (ensemble critic)                | `src/algos/online_iql.py`                      |
+| Offline dataset / replay buffer             | `src/data/dataset.py`                          |
+| Data loading, corruption                    | `src/data/loader.py`, `src/data/corruption.py` |
+| Normalized return, evaluation               | `src/eval/metrics.py`                          |
+| Fine-tuning curves, sample efficiency plots | `src/eval/plotting.py`                         |
+| Phase I checkpoints (input)                 | `results/`                                     |
+| Phase II results (output)                   | `results_phase2/`                              |
+| Phase II plots (output)                     | `plots_phase2/`                                |
