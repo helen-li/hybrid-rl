@@ -42,7 +42,12 @@ from typing import Dict, List
 import numpy as np
 
 from src.finetune import finetune, FinetuneConfig
-from src.eval.plotting import plot_finetuning_curves, plot_sample_efficiency
+from src.eval.plotting import (
+    plot_finetuning_curves,
+    plot_bonus_comparison,
+    plot_ensemble_disagreement,
+    plot_sample_efficiency,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -207,27 +212,95 @@ def generate_plots(
                 )
                 print(f"[plot] Saved fine-tuning curves for {algo} {env}")
 
-        # ---- Sample efficiency (one plot per env) -------------------- #
-        # Compare ensemble vs vanilla across corruption levels
-        efficiency_data: Dict[str, Dict[str, float]] = {}
+        # ---- Bonus comparison bar chart (one per env) ---------------- #
+        corruption_labels = ["clean" if k == 0 else f"k={int(k)}" for k in corruptions]
+        ensemble_scores: Dict[str, List[float]] = {}
+        vanilla_scores: Dict[str, List[float]] = {}
+        ensemble_stds: Dict[str, List[float]] = {}
+        vanilla_stds: Dict[str, List[float]] = {}
 
+        for algo in algos:
+            ens_means, van_means = [], []
+            ens_sds, van_sds = [], []
+            for k in corruptions:
+                for bonus_type, means_list, sds_list in [
+                    ("ensemble", ens_means, ens_sds),
+                    ("none", van_means, van_sds),
+                ]:
+                    seed_finals = []
+                    for seed in seeds:
+                        m = _load_metrics(save_dir, algo, env, k, bonus_type, seed, reward_noise_std)
+                        if m and m["normalized_return"]:
+                            seed_finals.append(m["normalized_return"][-1])
+                    means_list.append(float(np.mean(seed_finals)) if seed_finals else 0.0)
+                    sds_list.append(float(np.std(seed_finals)) if len(seed_finals) > 1 else 0.0)
+
+            ensemble_scores[algo.upper()] = ens_means
+            vanilla_scores[algo.upper()] = van_means
+            ensemble_stds[algo.upper()] = ens_sds
+            vanilla_stds[algo.upper()] = van_sds
+
+        if any(ensemble_scores.values()) or any(vanilla_scores.values()):
+            plot_bonus_comparison(
+                list(ensemble_scores.keys()),
+                corruption_labels,
+                ensemble_scores,
+                vanilla_scores,
+                ensemble_stds,
+                vanilla_stds,
+                title=f"Ensemble vs Vanilla - {env}",
+                save_path=f"{plot_dir}/bonus_comparison_{env}.png",
+            )
+            print(f"[plot] Saved bonus comparison for {env}")
+
+        # ---- Ensemble disagreement over training (one per algo+env) -- #
+        for algo in algos:
+            disagree_data: Dict[str, Dict[str, list]] = {}
+            for k in corruptions:
+                all_disagree = []
+                train_steps = None
+                for seed in seeds:
+                    m = _load_metrics(save_dir, algo, env, k, "ensemble", seed, reward_noise_std)
+                    if m is None or "ensemble_disagreement" not in m:
+                        continue
+                    all_disagree.append(m["ensemble_disagreement"])
+                    train_steps = m.get("train_step", m["step"][1:])  # train_step or eval steps
+                if not all_disagree or train_steps is None:
+                    continue
+                min_len = min(len(d) for d in all_disagree)
+                arr = np.array([d[:min_len] for d in all_disagree])
+                k_label = f"k={int(k)}" if k > 0 else "clean"
+                disagree_data[k_label] = {
+                    "train_step": train_steps[:min_len],
+                    "ensemble_disagreement": arr.mean(axis=0).tolist(),
+                    "ensemble_disagreement_std": arr.std(axis=0).tolist(),
+                }
+            if disagree_data:
+                plot_ensemble_disagreement(
+                    disagree_data,
+                    title=f"Ensemble Disagreement - {algo.upper()} {env}",
+                    save_path=f"{plot_dir}/disagreement_{algo}_{env}.png",
+                )
+                print(f"[plot] Saved disagreement plot for {algo} {env}")
+
+        # ---- Sample efficiency (one per env) ------------------------- #
+        # Measure steps to gain +10 normalized return from each run's starting
+        # performance.  This is independent of absolute performance level and
+        # fairly compares ensemble vs vanilla across all corruption levels.
+        IMPROVEMENT_DELTA = 10.0
+        efficiency_data: Dict[str, Dict[str, float]] = {}
         for algo, k in product(algos, corruptions):
             for bonus_type in bonus_types:
                 steps_to_threshold = []
                 for seed in seeds:
                     m = _load_metrics(save_dir, algo, env, k, bonus_type, seed, reward_noise_std)
-                    if m is None:
+                    if m is None or not m["normalized_return"]:
                         continue
-                    # Find first step where normalized return exceeds threshold.
-                    # Use the clean-dataset offline performance as threshold.
-                    clean_m = _load_metrics(save_dir, algo, env, 0.0, bonus_type, seed, reward_noise_std)
-                    if clean_m is None or not clean_m["normalized_return"]:
-                        continue
-                    # Threshold: 80% of the clean offline starting performance
-                    threshold = clean_m["normalized_return"][0] * 0.8
+                    start_perf = m["normalized_return"][0]
+                    target = start_perf + IMPROVEMENT_DELTA
                     found = False
                     for step, ret in zip(m["step"], m["normalized_return"]):
-                        if ret >= threshold:
+                        if ret >= target:
                             steps_to_threshold.append(step)
                             found = True
                             break
@@ -246,10 +319,10 @@ def generate_plots(
         if efficiency_data:
             plot_sample_efficiency(
                 efficiency_data,
-                title=f"Sample Efficiency - {env}",
+                title=f"Steps to +{int(IMPROVEMENT_DELTA)} Return - {env}",
                 save_path=f"{plot_dir}/sample_efficiency_{env}.png",
             )
-            print(f"[plot] Saved sample efficiency plot for {env}")
+            print(f"[plot] Saved sample efficiency for {env}")
 
 
 # --------------------------------------------------------------------------- #

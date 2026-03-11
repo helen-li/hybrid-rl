@@ -40,7 +40,7 @@ This approach is inspired by McInroe et al. (2024), which framed the offline-to-
 
 As an alternative uncertainty signal, we may also evaluate TD-error-based bonuses. We will compare this approach against vanilla online fine-tuning and offline-only baselines to assess the benefits of uncertainty-driven exploration.
 
-Evaluation metrics include sample efficiency (number of online environment steps required to reach a fixed performance threshold), final asymptotic performance, and training stability during the offline-to-online transition. Quantitatively, we will report mean and standard deviation across multiple random seeds and compare methods using learning curves and summary statistics.
+Evaluation metrics include sample efficiency (number of online environment steps required to reach a fixed performance threshold) and final asymptotic performance. Quantitatively, we will report mean and standard deviation across multiple random seeds and compare methods using learning curves and summary statistics.
 
 ---
 

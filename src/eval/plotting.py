@@ -234,25 +234,45 @@ def plot_finetuning_curves(
 ):
     """Plot fine-tuning learning curves comparing ensemble vs vanilla.
 
-    Same format as ``plot_learning_curves`` but styled for Phase II
-    with solid lines for ensemble and dashed lines for vanilla.
+    One subplot per corruption level so each panel has only two lines
+    (ensemble vs vanilla), making the comparison easy to read.
     """
-    fig, ax = plt.subplots()
-    for i, (label, data) in enumerate(results.items()):
-        xs = data[x_key]
-        ys = data[y_key]
-        color = COLORS[i % len(COLORS)]
-        linestyle = "--" if "vanilla" in label else "-"
-        ax.plot(xs, ys, label=label, color=color, linewidth=1.5, linestyle=linestyle)
-        std_key = y_key + "_std"
-        if std_key in data:
-            stds = np.array(data[std_key])
-            ys_arr = np.array(ys)
-            ax.fill_between(xs, ys_arr - stds, ys_arr + stds, color=color, alpha=0.15)
-    ax.set_title(title)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.legend(loc="best", fontsize=9)
+    # Group results by corruption level.
+    panels: Dict[str, Dict[str, Dict]] = {}  # corruption_tag -> {bonus_label -> data}
+    for label, data in results.items():
+        corruption_tag = label.split("(")[0].strip()
+        panels.setdefault(corruption_tag, {})[label] = data
+
+    n_panels = max(len(panels), 1)
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5), sharey=True)
+    if n_panels == 1:
+        axes = [axes]
+
+    for ax, (corruption_tag, entries) in zip(axes, panels.items()):
+        for label, data in entries.items():
+            xs = data[x_key]
+            ys = data[y_key]
+            is_vanilla = "vanilla" in label
+            color = COLORS[1] if is_vanilla else COLORS[0]
+            linestyle = "--" if is_vanilla else "-"
+            short_label = "Vanilla" if is_vanilla else "Ensemble"
+            ax.plot(xs, ys, label=short_label, color=color, linewidth=1.8,
+                    linestyle=linestyle)
+            std_key = y_key + "_std"
+            if std_key in data:
+                stds = np.array(data[std_key])
+                ys_arr = np.array(ys)
+                ax.fill_between(xs, ys_arr - stds, ys_arr + stds,
+                                color=color, alpha=0.15)
+        ax.set_title(corruption_tag, fontsize=13, fontweight="bold")
+        ax.set_xlabel(xlabel)
+        ax.legend(fontsize=10, loc="lower right")
+        ax.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k" if x >= 1e3 else f"{x:.0f}"))
+
+    axes[0].set_ylabel(ylabel)
+    fig.suptitle(title, fontsize=14, y=1.02)
+    fig.tight_layout()
     _save(fig, Path(save_path), show)
 
 
@@ -296,4 +316,96 @@ def plot_sample_efficiency(
     ]
     ax.legend(handles=legend_elements)
     fig.tight_layout()
+    _save(fig, Path(save_path), show)
+
+
+# --------------------------------------------------------------------------- #
+#  Phase II: Bonus comparison bar chart
+# --------------------------------------------------------------------------- #
+
+def plot_bonus_comparison(
+    algo_names: List[str],
+    corruption_levels: List[str],
+    ensemble_scores: Dict[str, List[float]],
+    vanilla_scores: Dict[str, List[float]],
+    ensemble_stds: Optional[Dict[str, List[float]]] = None,
+    vanilla_stds: Optional[Dict[str, List[float]]] = None,
+    title: str = "Ensemble vs Vanilla Fine-tuning",
+    save_path: str | Path = "plots_phase2/bonus_comparison.png",
+    show: bool = False,
+):
+    """Grouped bar chart comparing ensemble vs vanilla final performance.
+
+    One subplot per algorithm, bars grouped by corruption level.
+    """
+    n_algos = max(len(algo_names), 1)
+    fig, axes = plt.subplots(1, n_algos, figsize=(5 * n_algos, 5), sharey=True)
+    if n_algos == 1:
+        axes = [axes]
+
+    x = np.arange(len(corruption_levels))
+    width = 0.35
+
+    for ax, algo in zip(axes, algo_names):
+        ens_vals = ensemble_scores[algo]
+        van_vals = vanilla_scores[algo]
+        ens_err = ensemble_stds[algo] if ensemble_stds else None
+        van_err = vanilla_stds[algo] if vanilla_stds else None
+
+        ax.bar(x - width / 2, ens_vals, width, yerr=ens_err, capsize=4,
+               label="Ensemble", color=COLORS[0], alpha=0.85, edgecolor="white")
+        ax.bar(x + width / 2, van_vals, width, yerr=van_err, capsize=4,
+               label="Vanilla", color=COLORS[1], alpha=0.85, edgecolor="white")
+
+        ax.set_title(algo, fontsize=13, fontweight="bold")
+        ax.set_xticks(x)
+        ax.set_xticklabels(corruption_levels)
+        ax.legend(fontsize=10)
+
+    axes[0].set_ylabel("Final Normalized Return")
+    fig.suptitle(title, fontsize=14, y=1.02)
+    fig.tight_layout()
+    _save(fig, Path(save_path), show)
+
+
+# --------------------------------------------------------------------------- #
+#  Phase II: Ensemble disagreement over training
+# --------------------------------------------------------------------------- #
+
+def plot_ensemble_disagreement(
+    results: Dict[str, Dict[str, List[float]]],
+    x_key: str = "train_step",
+    y_key: str = "ensemble_disagreement",
+    title: str = "Ensemble Disagreement",
+    xlabel: str = "Training Steps",
+    ylabel: str = "Mean Q-Ensemble Std",
+    save_path: str | Path = "plots_phase2/disagreement.png",
+    show: bool = False,
+):
+    """Plot ensemble disagreement over online training steps.
+
+    One line per corruption level, showing how disagreement evolves.
+    """
+    _CORRUPTION_COLORS = {
+        "clean": COLORS[0], "k=0": COLORS[0],
+        "k=30": COLORS[1], "k=60": COLORS[2],
+    }
+
+    fig, ax = plt.subplots()
+    for label, data in results.items():
+        xs = data[x_key]
+        ys = data[y_key]
+        color = _CORRUPTION_COLORS.get(label, COLORS[3])
+        ax.plot(xs, ys, label=label, color=color, linewidth=1.5)
+        std_key = y_key + "_std"
+        if std_key in data:
+            stds = np.array(data[std_key])
+            ys_arr = np.array(ys)
+            ax.fill_between(xs, ys_arr - stds, ys_arr + stds, color=color, alpha=0.15)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend(loc="best", fontsize=10)
+    ax.xaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, _: f"{x/1e3:.0f}k" if x >= 1e3 else f"{x:.0f}"))
     _save(fig, Path(save_path), show)
