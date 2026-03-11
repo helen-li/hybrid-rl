@@ -194,7 +194,7 @@ def generate_plots(
                 mean = arr.mean(axis=0).tolist()
                 std = arr.std(axis=0).tolist()
 
-                bonus_label = "ensemble" if bonus_type == "ensemble" else "vanilla"
+                bonus_label = "uncertainty bonus" if bonus_type == "ensemble" else "no bonus"
                 k_label = f"k={int(k)}" if k > 0 else "clean"
                 label = f"{k_label} ({bonus_label})"
 
@@ -248,7 +248,7 @@ def generate_plots(
                 vanilla_scores,
                 ensemble_stds,
                 vanilla_stds,
-                title=f"Ensemble vs Vanilla - {env}",
+                title=f"Uncertainty Bonus vs No Bonus - {env}",
                 save_path=f"{plot_dir}/bonus_comparison_{env}.png",
             )
             print(f"[plot] Saved bonus comparison for {env}")
@@ -308,7 +308,7 @@ def generate_plots(
                         steps_to_threshold.append(m["step"][-1])
 
                 if steps_to_threshold:
-                    bonus_label = "ensemble" if bonus_type == "ensemble" else "vanilla"
+                    bonus_label = "uncertainty bonus" if bonus_type == "ensemble" else "no bonus"
                     k_label = f"k={int(k)}" if k > 0 else "clean"
                     label = f"{algo.upper()} {k_label} ({bonus_label})"
                     efficiency_data[label] = {

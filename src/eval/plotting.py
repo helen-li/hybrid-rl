@@ -252,10 +252,10 @@ def plot_finetuning_curves(
         for label, data in entries.items():
             xs = data[x_key]
             ys = data[y_key]
-            is_vanilla = "vanilla" in label
+            is_vanilla = "no bonus" in label.lower() or "vanilla" in label.lower()
             color = COLORS[1] if is_vanilla else COLORS[0]
             linestyle = "--" if is_vanilla else "-"
-            short_label = "Vanilla" if is_vanilla else "Ensemble"
+            short_label = "No Bonus" if is_vanilla else "Uncertainty Bonus"
             ax.plot(xs, ys, label=short_label, color=color, linewidth=1.8,
                     linestyle=linestyle)
             std_key = y_key + "_std"
@@ -299,7 +299,7 @@ def plot_sample_efficiency(
     means = [data[l]["mean"] for l in labels]
     stds = [data[l]["std"] for l in labels]
 
-    colors = [COLORS[0] if "ensemble" in l else COLORS[1] for l in labels]
+    colors = [COLORS[0] if "bonus" in l.lower() and "no bonus" not in l.lower() else COLORS[1] for l in labels]
     x = np.arange(len(labels))
 
     ax.bar(x, means, yerr=stds, capsize=3, color=colors, alpha=0.8)
@@ -308,11 +308,11 @@ def plot_sample_efficiency(
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
 
-    # Legend for ensemble vs vanilla colors
+    # Legend for bonus vs no-bonus colors
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor=COLORS[0], label="Ensemble bonus"),
-        Patch(facecolor=COLORS[1], label="Vanilla (no bonus)"),
+        Patch(facecolor=COLORS[0], label="Uncertainty Bonus"),
+        Patch(facecolor=COLORS[1], label="No Bonus"),
     ]
     ax.legend(handles=legend_elements)
     fig.tight_layout()
@@ -353,9 +353,9 @@ def plot_bonus_comparison(
         van_err = vanilla_stds[algo] if vanilla_stds else None
 
         ax.bar(x - width / 2, ens_vals, width, yerr=ens_err, capsize=4,
-               label="Ensemble", color=COLORS[0], alpha=0.85, edgecolor="white")
+               label="Uncertainty Bonus", color=COLORS[0], alpha=0.85, edgecolor="white")
         ax.bar(x + width / 2, van_vals, width, yerr=van_err, capsize=4,
-               label="Vanilla", color=COLORS[1], alpha=0.85, edgecolor="white")
+               label="No Bonus", color=COLORS[1], alpha=0.85, edgecolor="white")
 
         ax.set_title(algo, fontsize=13, fontweight="bold")
         ax.set_xticks(x)
