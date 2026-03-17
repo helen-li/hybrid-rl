@@ -1,0 +1,22 @@
+{
+  "checkpoint_path": "results/cql_hopper-medium-v2_k60_noise0.0_s3/checkpoint.pt",
+  "env_name": "hopper-medium-v2",
+  "algo": "cql",
+  "remove_top_k": 60.0,
+  "reward_noise_std": 0.0,
+  "corruption_seed": 0,
+  "n_ensemble": 3,
+  "bonus_coeff": 1.0,
+  "bonus_type": "none",
+  "online_steps": 250000,
+  "online_ratio": 0.5,
+  "min_online_buffer": 1000,
+  "batch_size": 256,
+  "eval_interval": 5000,
+  "eval_episodes": 10,
+  "log_interval": 1000,
+  "cql_alpha_online": 1.0,
+  "seed": 3,
+  "device": "auto",
+  "save_dir": "results_phase2"
+}
